@@ -12,15 +12,15 @@ import cv2
 import math
 
 
-maxSpeed = 0.5             # Vitesse maximale
-mediumSpeed = 0.           # Vitesse moyennement limitée
-slowSpeed = 0.             # Vitesse très limitée
+maxSpeed = 0.3          # Vitesse maximale
+mediumSpeed = 0.2           # Vitesse moyennement limitée
+slowSpeed = 0.1             # Vitesse très limitée
 emergencyStopDistance = 0.5 # Distance à laquelle le robot s'arrete net
 StopDistance = 0.51         # Distance à laquelle le robot freine gentiment pour s'arreter
 MediumDistance = 1          # Distance au delà de laquelle le robo va à mediumSpeed
 FreedomDistance = 1.5       # Distance au delà de laquelle le robot va à maxSpeed
 joystickMultiplier = maxSpeed / 1.5
-
+rotationDistance = 1.5
 
 pub = rospy.Publisher("/cmd_vel_mux/input/teleop",Twist, queue_size=10)
 global currSpeed
@@ -34,11 +34,13 @@ chgDirCounter = 0
 global rotation
 rotation = False
 global autonomousMode
-autonomousMode = False
+autonomousMode = True
 global movementOn
-movementOn = False
+movementOn = True
+global randomOn
+randomOn = True
 global joyTwist
-joyTwist = 0
+joyTwist = Twist()
 
 
 def callback(msg):
@@ -50,6 +52,8 @@ def callback(msg):
     global currSpeedRad
     global autonomousMode
     global joyTwist
+    global randomOn
+
     bridge = CvBridge()
     twist = Twist()
 
@@ -70,7 +74,8 @@ def callback(msg):
 
     # Get min dist
     #print np.asarray(depth_image).shape
-    (minVal,maxVal,minLoc,maxLoc) = cv2.minMaxLoc(np.asarray(depth_image[100:400]))
+    zone = np.concatenate((np.asarray(depth_image[100:280]), np.asarray(depth_image[280:290])), axis= 0)
+    (minVal,maxVal,minLoc,maxLoc) = cv2.minMaxLoc(zone)
     rospy.loginfo("Loc : "+str(minLoc)+"Val : "+str(minVal))
 
 
@@ -83,13 +88,13 @@ def callback(msg):
     elif chgDirCounter > 50:
         rospy.loginfo("demi tour (counter)")
         rotation = True
-    elif minLoc[0] < 320 and minVal < 1.5 :
+    elif minLoc[0] < 320 and minVal < rotationDistance :
         rospy.loginfo("Je dois tourner a droite")
         if lastDirection == "gauche":
             chgDirCounter = chgDirCounter + 10
             lastDirection = "droite"
         targetRotation = -0.5
-    elif minLoc[0] > 320 and minVal < 1.5 :
+    elif minLoc[0] > 320 and minVal < rotationDistance :
         rospy.loginfo("Je dois tourner a gauche")
         if lastDirection == "droite":
             chgDirCounter = chgDirCounter + 10
@@ -97,6 +102,8 @@ def callback(msg):
         targetRotation = 0.5
     else:
         targetRotation = 0
+        if randomOn:
+            targetRotation = targetRotation + 2 * np.random.randn()
 
     # Partie translation
     targetSpeed = 0

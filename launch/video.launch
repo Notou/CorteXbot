@@ -1,4 +1,0 @@
-<?xml version="1.0"?>
-<launch>
-  <node name="retour_video" pkg="turtleshow" type="video_player.py" output="screen"/>
-</launch>

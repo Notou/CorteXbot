@@ -1,6 +1,0 @@
-<?xml version="1.0"?>
-<launch>
-  <!-- this file is included by bebop_driver launch files by default in their own namespaces -->
-  <node name="joystick_controller" pkg="turtleshow" type="control.py" output="screen"/>
-  <node name="gui_sound_controller" pkg="turtleshow" type="sound_remote.py" />
-</launch>

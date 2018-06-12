@@ -3,32 +3,39 @@
 import rospy
 from geometry_msgs.msg import Point
 from diagnostic_msgs.msg import DiagnosticArray
+from sensor_msgs.msg import BatteryState
 import sys, tty, termios
 from subprocess import call, check_output
 import re
 
-global p
-pubCharge = rospy.Publisher("/turtleshow/robot_charge_level", Point, queue_size=10)
+aggregated_charge = Point()
+pubCharge = rospy.Publisher("/cortexbot/robot_charge_level", Point, queue_size=10)
 
 def callback(msg):
-    global p
     if msg.status[0].name == 'mobile_base_nodelet_manager: Battery':
-        point = Point()
-        point.x =  float(msg.status[0].values[1].value)
-        point.y = int(p.findall(check_output("acpi"))[0].rstrip('%'))
-        pubCharge.publish(point)
+        aggregated_charge.x =  float(msg.status[0].values[1].value)
+        pubCharge.publish(aggregated_charge)
+        if is_battery_empty():
+            emergency_return()
 
+def callback_laptop(msg):
+    aggregated_charge.y = msg.percentage / 100
+    pubCharge.publish(aggregated_charge)
+    if is_battery_empty():
+        emergency_return()
+
+def is_battery_empty:
+    return ((pubCharge.x < 0.2 and pubCharge.x > 0) or (pubCharge.y < 0.2 and pubCharge.y > 0))
+
+def emergency_return():
+    pass
 
 def listener():
-    global p
+    global aggregated_charge
     rospy.loginfo("lanching monitor node")
     rospy.init_node('batteryMonitor', anonymous=True)
     rospy.Subscriber("/diagnostics", DiagnosticArray, callback)
-    p = re.compile('[0-9]+%')
-    rospy.logwarn(str(int(p.findall(check_output("acpi"))[0].rstrip('%'))))
-    point = Point()
-    point.y = int(p.findall(check_output("acpi"))[0].rstrip('%'))
-    pubCharge.publish(point)
+    rospy.Subscriber("/laptop_charge", BatteryState, callback_laptop)
     rospy.spin()
 
 if __name__ == '__main__':
