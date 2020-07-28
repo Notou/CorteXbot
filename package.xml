@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package>
   <name>cortexbot</name>
-  <version>0.0.0</version>
+  <version>0.1.0</version>
   <description>The CorteXbot package</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
@@ -40,7 +40,9 @@
   <!-- Use test_depend for packages you need only for testing: -->
   <!--   <test_depend>gtest</test_depend> -->
   <buildtool_depend>catkin</buildtool_depend>
-
+  <run_depend>turtlebot_bringup</run_depend>
+  <run_depend>kobuki_auto_docking</run_depend>
+  <run_depend>freenect_launch</run_depend>
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>
