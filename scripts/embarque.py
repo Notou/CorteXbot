@@ -2,7 +2,7 @@
 # This Python file uses the following encoding: utf-8
 import rospy
 from std_msgs.msg import String, Bool
-from std_srvs.msg import Empty, Trigger
+from std_srvs.srv import Empty, Trigger
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 import sys, tty, termios
@@ -12,8 +12,8 @@ import cv2
 import math
 
 
-maxSpeed = 0.3          # Vitesse maximale
-mediumSpeed = 0.2           # Vitesse moyennement limitée
+maxSpeed = 1          # Vitesse maximale
+mediumSpeed = 0.5           # Vitesse moyennement limitée
 slowSpeed = 0.1             # Vitesse très limitée
 emergencyStopDistance = 0.5 # Distance à laquelle le robot s'arrete net
 StopDistance = 0.55         # Distance à laquelle le robot freine gentiment pour s'arreter
@@ -21,13 +21,14 @@ MediumDistance = 1          # Distance au delà de laquelle le robo va à medium
 FreedomDistance = 1.5       # Distance au delà de laquelle le robot va à maxSpeed
 joystickMultiplier = maxSpeed / 1.5
 rotationDistance = 1.5
-randomCoefficient = 4
+randomCoefficient = 6
+
 accelerationRate = 0.02
-accelerationRateRad = 0.1
+accelerationRateRad = 0.2
 
 class Walker():
     def __init__(self, ):
-        self.pub = rospy.self.publisher("/cmd_vel_mux/input/teleop",Twist, queue_size=10)
+        self.pub = rospy.Publisher("/cmd_vel_mux/input/teleop",Twist, queue_size=10)
 
         self.currSpeed= 0
         self.currSpeedRad= 0
@@ -36,7 +37,8 @@ class Walker():
         self.autonomousMode = True
         self.movementOn = False
         self.TakeOff = False
-        self.randomOn = True
+        self.randomOn = False
+	self.lastRot = 2
 
         self.lastDirection = "droite"
 
@@ -82,17 +84,22 @@ class Walker():
             if self.lastDirection == "gauche":
                 self.chgDirCounter = self.chgDirCounter + 10
                 self.lastDirection = "droite"
-            targetRotation = -0.5
+            targetRotation = -1
         elif minLoc[0] > 320 and minDistance < rotationDistance :
             rospy.loginfo("Je dois tourner a gauche")
             if self.lastDirection == "droite":
                 self.chgDirCounter = self.chgDirCounter + 10
                 self.lastDirection = "gauche"
-            targetRotation = 0.5
+            targetRotation = 1
         else:
             targetRotation = 0
             if self.randomOn:               #We turn randomly when there is no obstacle to avoid
-                targetRotation = targetRotation + randomCoefficient * np.random.randn()
+		if np.random.randint(20) < 1: #One chance over 20 to change direction
+			targetRotation = -1 * self.lastRot
+			self.lastRot = targetRotation
+		else:
+			targetRotation = self.lastRot
+		print("Random turn: ", targetRotation)
 
         # Partie translation
         targetSpeed = 0
@@ -117,7 +124,7 @@ class Walker():
             self.chgDirCounter = 0
             rospy.loginfo("Counter : "+str(self.chgDirCounter))
         if self.uTurn == True:
-            targetRotation = -0.6
+            targetRotation = -0.8
             targetSpeed = 0
             self.chgDirCounter = self.chgDirCounter - 0.5
             if self.chgDirCounter <= 0:
@@ -131,11 +138,12 @@ class Walker():
         else:
             targetRotation = self.joyTwist.angular.z + targetRotation
 
-        acceleration(targetSpeed)
-        accelerationRadiale(targetRotation)
+        self.acceleration(targetSpeed)
+        self.accelerationRadiale(targetRotation)
 
         twist.linear.x = self.currSpeed
         twist.angular.z = self.currSpeedRad
+	print(twist.angular.z)
         self.pub.publish(twist)
 
     def acceleration(self, targetSpeed):
@@ -160,7 +168,7 @@ class Walker():
             self.currSpeed = targetSpeed
 
     def accelerationRadiale(self, targetSpeed):
-
+	print("target ", targetSpeed, " curr ", self.currSpeedRad)
         if self.currSpeedRad > targetSpeed:
             self.currSpeedRad = self.currSpeedRad - accelerationRateRad
         elif self.currSpeedRad < targetSpeed:
@@ -173,8 +181,8 @@ class Walker():
         if msg.linear.y == 1:
             self.autonomousMode = True
 
-    def callbackSwitchMovement(self, msg):
-        self.movementOn = msg.data
+    def callbackSwitchMovement(self, req):
+        self.movementOn = not self.movementOn
 
     def callbackSwitchTakeoff(self, req):
         self.TakeOff = True
@@ -191,11 +199,11 @@ class Walker():
     def listener(self):
         rospy.loginfo("lanching nav node")
         rospy.init_node('nav', anonymous=True)
-        rospy.Subscriber("/camera/depth/image", Image, callback)
-        rospy.Subscriber("/cortexbot/command", Twist, joystickCallback)
-        rospy.Subscriber("/cortexbot/movement_on", Bool, callbackSwitchMovement)
-        rospy.Service('/cortexbot/take_off', Trigger, callbackSwitchTakeoff)
-        rospy.Service('/cortexbot/land', Trigger, GotToBaseCallback)
+        rospy.Subscriber("/camera/depth/image", Image, self.callback)
+        rospy.Subscriber("/cortexbot/command", Twist, self.joystickCallback)
+        rospy.Service('/cortexbot/movement_on', Trigger, self.callbackSwitchMovement)
+        rospy.Service('/cortexbot/take_off', Trigger, self.callbackSwitchTakeoff)
+        rospy.Service('/cortexbot/land', Trigger, self.GotToBaseCallback)
         rospy.spin()
 
 if __name__ == '__main__':

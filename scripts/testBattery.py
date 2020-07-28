@@ -12,6 +12,8 @@ aggregated_charge = Point()
 pubCharge = rospy.Publisher("/cortexbot/robot_charge_level", Point, queue_size=10)
 
 def callback(msg):
+    if len(msg.status) == 0:
+        return
     if msg.status[0].name == 'mobile_base_nodelet_manager: Battery':
         aggregated_charge.x =  float(msg.status[0].values[1].value)
         pubCharge.publish(aggregated_charge)
@@ -24,8 +26,8 @@ def callback_laptop(msg):
     if is_battery_empty():
         emergency_return()
 
-def is_battery_empty:
-    return ((pubCharge.x < 0.2 and pubCharge.x > 0) or (pubCharge.y < 0.2 and pubCharge.y > 0))
+def is_battery_empty():
+    return ((aggregated_charge.x < 0.2 and aggregated_charge.x > 0) or (aggregated_charge.y < 0.2 and aggregated_charge.y > 0))
 
 def emergency_return():
     pass
