@@ -1,11 +1,9 @@
-# Turtleshow
+# CorteXbot
 
+Turtlebot2 control system for use in the FIT/CorteXlab platform
 
-
-Dependencies: python vlc bindings: https://github.com/oaubert/python-vlc
+Currently implements a random walk
 
 *Build*
 
 Clone in a catkin source folder, then catkin build
-
-Put the config.json file in */raccourci_video_robot/*
