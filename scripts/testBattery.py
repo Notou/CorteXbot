@@ -27,7 +27,7 @@ def callback_laptop(msg):
         emergency_return()
 
 def is_battery_empty():
-    return ((aggregated_charge.x < 0.2 and aggregated_charge.x > 0) or (aggregated_charge.y < 0.2 and aggregated_charge.y > 0))
+    return ((pubCharge.x < 0.2 and pubCharge.x > 0) or (pubCharge.y < 0.2 and pubCharge.y > 0))
 
 def emergency_return():
     pass
