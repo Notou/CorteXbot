@@ -20,10 +20,11 @@
   </include>
 
   <node pkg="slam_toolbox" type="sync_slam_toolbox_node" name="slam_toolbox" output="screen">
-  <rosparam command="load" file="$(find slam_toolbox)/config/mapper_params_online_sync.yaml" />
+    <rosparam command="load" file="$(find slam_toolbox)/config/mapper_params_online_sync.yaml" />
   </node>
 
   <node name="navigator" pkg="cortexbot" type="scan_random_nav.py" output="screen"/>
   <node name="tf2_lidar" pkg="cortexbot" type="lidar_tf2_broadcaster.py" output="screen"/>
+  <node name="path_recorder" pkg="cortexbot" type="record_path.py" output="screen"/>
   <!-- <node name="battery_watcher" pkg="cortexbot" type="testBattery.py" output="screen"/> -->
 </launch>
