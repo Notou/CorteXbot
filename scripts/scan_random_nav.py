@@ -34,7 +34,7 @@ lidar_rotation_direction = -1 # -1 for clockwise, 1 for counterclockwise
 class Walker():
     def __init__(self, ):
         self.pub_safety = rospy.Publisher("/cmd_vel_mux/input/safety_controller",Twist, queue_size=10)
-        self.pub_nav = rospy.Publisher("/velocity_smoother/navv",Twist, queue_size=10)
+        self.pub_nav = rospy.Publisher("/velocity_smoother/navigator",Twist, queue_size=10)
         self.pub_led1 = rospy.Publisher("/mobile_base/commands/led1", Led, queue_size=10)
         self.pub_led2 = rospy.Publisher("/mobile_base/commands/led2", Led, queue_size=10)
         self.led1 = Led()
