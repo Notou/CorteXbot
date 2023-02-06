@@ -8,7 +8,7 @@
     <arg name="nodelet_manager_name"  value="mobile_base_nodelet_manager"/>
     <arg name="config_file" default="$(find cortexbot)/params/smoother.yaml" />
     <arg name="raw_cmd_vel_topic"     default="velocity_smoother/navigator"/>
-    <arg name="smooth_cmd_vel_topic"  default="cmd_vel_mux/input/nav"/>
+    <arg name="smooth_cmd_vel_topic"  default="cmd_vel_mux/input/navi"/>
   </include>
   <include file="$(find turtlebot_navigation)/launch/includes/move_base.launch.xml"/>
   <include file="$(find kobuki_auto_docking)/launch/minimal.launch" />

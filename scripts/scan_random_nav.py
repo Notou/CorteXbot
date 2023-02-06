@@ -24,14 +24,14 @@ randomCoefficient = 4
 accelerationRate = 0.02
 accelerationRateRad = 0.1
 
-avoidance_radius = 0.3      # Radius of the robot (m) for obstacle avoidance
+avoidance_radius = 0.35     # Radius of the robot (m) for obstacle avoidance
 epsilon = 1e-20             # To avoid dividing by 0
 emergency_stop_dist = 0.4
-soft_bounce_dist = -1110.5
-max_speed = 0.3
-max_rot_speed = 3.0
+soft_bounce_dist = 0.9
+max_speed = 1.0
+max_rot_speed = 5.0
 movements = ["rotation", "translation", "full"]
-lidar_rotation_direction = -1 # -1 for clockwise, 1 for counterclockwise
+lidar_rotation_direction = 1 # -1 for clockwise, 1 for counterclockwise
 
 class Walker():
     def __init__(self, ):
@@ -43,9 +43,9 @@ class Walker():
         self.led2 = Led()
 
         self.current_speed = max_speed
-        self.current_rot_speed = max_rot_speed = 3.0
-        self.min_draw_dist = 2  # m
-        self.max_draw_dist = 10 # m
+        self.current_rot_speed = max_rot_speed
+        self.min_draw_dist = 1.0  # m
+        self.max_draw_dist = 5.0 # m
         self.max_draw_angle = np.pi # rad
 
 
@@ -100,13 +100,14 @@ class Walker():
         scanned_array = msg.ranges
         scanned_angles = np.arange(msg.angle_min+np.pi, msg.angle_max+np.pi, msg.angle_increment) # Get array of angles corresponding to the measurements
         scanned_angles[len(scanned_angles)//2:] = scanned_angles[len(scanned_angles)//2:] - (2*np.pi)
+        scanned_array = np.where(scanned_array<msg.range_min, np.inf, scanned_array)
 
         # We want to check if there is an obstacle in the way
         collision_distances = (np.sign(np.cos(scanned_angles))*avoidance_radius) / (np.abs(np.sin(scanned_angles)) + epsilon) # Get distances at which we can have a collision in straight line
         travel_to_collision = np.where(scanned_array<collision_distances, scanned_array*np.cos(scanned_angles), np.inf)
-        print(collision_distances[::100])
-        print(travel_to_collision[::100])
-        print(scanned_angles[::100])
+        # print(collision_distances[::100])
+        # print(travel_to_collision[::100])
+        # print(scanned_angles[::100])
         angle_index = np.argmin(travel_to_collision)
         return scanned_angles[angle_index], travel_to_collision[angle_index]
 
@@ -162,6 +163,8 @@ class Walker():
             self.movement_mode = movements[0]
 
             self.dist_goal, self.angle_goal = self.draw_distance_angle() # Draw new leg of the trip
+            self.rotation_direction = np.sign(self.angle_goal)
+            self.angle_goal = np.abs(self.angle_goal)
             self.reset_reference()
 
             rospy.loginfo("Travel leg finished, picking new direction")
@@ -188,7 +191,7 @@ class Walker():
         Return:
         angle (abs value), direction (-1 for clockwise, 1 for counterclockwise)
         '''            
-        angle = np.pi - (2*np.abs(obstacle_angle))
+        angle = np.maximum(np.pi - (2*np.abs(obstacle_angle)), 0.5)
         
         # We want to turn away from the obstacle
         direction = -1 * np.sign(np.sin(obstacle_angle)) * lidar_rotation_direction
@@ -222,10 +225,11 @@ class Walker():
         '''
         if self.distance_travelled_source == "time":
             time_span = time.time() - reference
-            dist = time_span / self.current_speed
+            dist = time_span * self.current_speed
         if self.distance_travelled_source == "odom":
             dist = np.sqrt(np.square(self.current_pose.position.x - self.reference.position.x) + \
             np.square(self.current_pose.position.y - self.reference.position.y))
+        rospy.loginfo("Travelled for "+str(time_span)+"s since ref, estimating a distance of "+str(dist)+"m")
         return dist
 
     def angle_travelled_since_ref(self, reference):
@@ -235,10 +239,11 @@ class Walker():
 
         if self.distance_travelled_source == "time":
             time_span = time.time() - reference
-            angle = time_span / self.current_rot_speed
+            angle = time_span * self.current_rot_speed
         if self.distance_travelled_source == "odom":
             quat_rotation = tf.transformations.quaternion_multiply(tf.transformations.quaternion_inverse(self.reference.orientation), self.current_pose.orientation)
             angle = tf.transformations.euler_from_quaternion(quat_rotation)[-1]
+        rospy.loginfo("Rotated for "+str(time_span)+"s since ref, estimating an angle of "+str(angle)+"rad")
         return angle
 
     def odom_callback(self, msg):
