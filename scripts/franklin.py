@@ -10,6 +10,7 @@ from cv_bridge import CvBridge, CvBridgeError
 import numpy as np
 import cv2
 import math
+import random
 
 
 maxSpeed = 1          # Vitesse maximale
@@ -20,7 +21,7 @@ StopDistance = 0.55         # Distance à laquelle le robot freine gentiment pou
 MediumDistance = 1          # Distance au delà de laquelle le robo va à mediumSpeed
 FreedomDistance = 1.5       # Distance au delà de laquelle le robot va à maxSpeed
 joystickMultiplier = maxSpeed / 1.5
-rotationDistance = 2
+rotationDistance = 1.2
 randomCoefficient = 6
 
 accelerationRate = 0.02
@@ -37,7 +38,7 @@ class Walker():
         self.autonomousMode = True
         self.movementOn = False
         self.TakeOff = False
-        self.randomOn = False
+        self.randomOn = True
         self.lastRot = 2
 
         self.lastDirection = "droite"
@@ -72,7 +73,7 @@ class Walker():
 
         # Partie rotation
         targetRotation = 0
-        if maxDistance < 1.6:           #If the field of view is full of obstacles
+        if maxDistance < 1.0:           #If the field of view is full of obstacles
             rospy.loginfo("demi tour")
             self.chgDirCounter = 50
             self.uTurn = True
@@ -92,11 +93,12 @@ class Walker():
                 self.lastDirection = "gauche"
             targetRotation = 1
         else:
-            targetRotation = 0
             if self.randomOn:               #We turn randomly when there is no obstacle to avoid
-        		if np.random.randint(40) < 1: #One chance over 40 to change direction
-        			targetRotation = -1 * self.lastRot
+        		if np.random.randint(20) < 1: #One chance over 20 to change direction
+				targetRotation = random.choice([-1, 1])
         			self.lastRot = targetRotation
+				self.chgDirCounter = random.randint(0, 100)
+				self.lastDirection = random.choice(["gauche", "droite"])
         		else:
         			targetRotation = self.lastRot
         		print("Random turn: ", targetRotation)
