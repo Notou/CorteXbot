@@ -4,11 +4,13 @@ import rospy
 import numpy as np
 import math
 import time
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Pose
 from sensor_msgs.msg import LaserScan
 from kobuki_msgs.msg import ButtonEvent, WheelDropEvent, Led
 from std_msgs.msg import String, Bool
 from std_srvs.srv import Empty, Trigger
+from nav_msgs.msg import Odometry
+import tf.transformations
 
 maxSpeed = 0.3              # Vitesse maximale
 mediumSpeed = 0.2           # Vitesse moyennement limitée
@@ -57,6 +59,10 @@ class Walker():
         self.random_on = False
 
         self.distance_travelled_source = "time"  # "or "odom"
+        self.distance_travelled_source = "odom"
+
+        if self.distance_travelled_source == "odom":
+            self.current_pose = Pose()
 
         self.reset_reference()
         # We just rely on yocs_velocity_smoother to manage accelerations
@@ -172,6 +178,9 @@ class Walker():
         if self.distance_travelled_source == "time":
             self.reference = time.time()
 
+        if self.distance_travelled_source == "odom":
+            self.reference = self.current_pose
+
     def bounce_angle_dir(self, obstacle_angle):
         '''
         Compute rotation angle and direction needed to bounce from obstacle
@@ -186,7 +195,7 @@ class Walker():
 
         return angle, direction
 
-    def pub_twist(self, translation=0, rotation=0):
+    def pub_twist(self, translation=0.0, rotation=0.0):
         '''
         Publish a Twist message on the registered topic with desired translation and rotation speed
         '''
@@ -214,6 +223,9 @@ class Walker():
         if self.distance_travelled_source == "time":
             time_span = time.time() - reference
             dist = time_span / self.current_speed
+        if self.distance_travelled_source == "odom":
+            dist = np.sqrt(np.square(self.current_pose.position.x - self.reference.position.x) + \
+            np.square(self.current_pose.position.y - self.reference.position.y))
         return dist
 
     def angle_travelled_since_ref(self, reference):
@@ -224,7 +236,14 @@ class Walker():
         if self.distance_travelled_source == "time":
             time_span = time.time() - reference
             angle = time_span / self.current_rot_speed
+        if self.distance_travelled_source == "odom":
+            quat_rotation = tf.transformations.quaternion_multiply(tf.transformations.quaternion_inverse(self.reference.orientation), self.current_pose.orientation)
+            angle = tf.transformations.euler_from_quaternion(quat_rotation)[-1]
         return angle
+
+    def odom_callback(self, msg):
+
+        self.current_pose = msg.pose.pose
 
     def callback_switch_movement(self, req):
         self.movement_on = not self.movement_on
@@ -301,6 +320,8 @@ class Walker():
         rospy.Service("/cortexbot/random_on", Trigger, self.callback_switch_random)
         # rospy.Service('/cortexbot/leave_base', Trigger, self.callbackSwitchTakeoff)
         # rospy.Service('/cortexbot/dock', Trigger, self.GotToBaseCallback)
+        if self.distance_travelled_source == "odom":
+            rospy.Subscriber("/odom", Odometry, self.odom_callback)
         
         self.led1.value = Led.GREEN
         self.pub_led1.publish(self.led1)
