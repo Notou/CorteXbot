@@ -13,8 +13,6 @@
   <include file="$(find turtlebot_navigation)/launch/includes/move_base.launch.xml"/>
   <include file="$(find kobuki_auto_docking)/launch/minimal.launch" />
   
-
-  
   <include file="$(find rplidar_ros)/launch/rplidar_a3.launch">
     <param name="frame_id" type="string" value="laser_link"/>
   </include>
@@ -26,5 +24,4 @@
   <node name="navigator" pkg="cortexbot" type="scan_random_nav.py" output="screen"/>
   <node name="tf2_lidar" pkg="cortexbot" type="lidar_tf2_broadcaster.py" output="screen"/>
   <node name="path_recorder" pkg="cortexbot" type="record_path.py" output="screen"/>
-  <!-- <node name="battery_watcher" pkg="cortexbot" type="testBattery.py" output="screen"/> -->
 </launch>

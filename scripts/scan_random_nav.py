@@ -2,14 +2,14 @@
 # This Python file uses the following encoding: utf-8
 import rospy
 import numpy as np
-import math
+import os
 import time
 from geometry_msgs.msg import Twist, Pose
 from sensor_msgs.msg import LaserScan
 from kobuki_msgs.msg import ButtonEvent, WheelDropEvent, Led
-from std_msgs.msg import String, Bool
 from std_srvs.srv import Empty, Trigger
 from nav_msgs.msg import Odometry
+from diagnostic_msgs.msg import DiagnosticArray
 import tf.transformations
 
 maxSpeed = 0.3              # Vitesse maximale
@@ -24,12 +24,14 @@ randomCoefficient = 4
 accelerationRate = 0.02
 accelerationRateRad = 0.1
 
+minimum_charge = 0.3        # Battery charge to initiate return to base
 avoidance_radius = 0.35     # Radius of the robot (m) for obstacle avoidance
 epsilon = 1e-20             # To avoid dividing by 0
 emergency_stop_dist = 0.4
-soft_bounce_dist = 0.9
+soft_bounce_dist = 0.5
+max_speed_dist = 1.0
 max_speed = 1.0
-max_rot_speed = 5.0
+max_rot_speed = 1.5
 movements = ["rotation", "translation", "full"]
 lidar_rotation_direction = 1 # -1 for clockwise, 1 for counterclockwise
 
@@ -44,21 +46,22 @@ class Walker():
 
         self.current_speed = max_speed
         self.current_rot_speed = max_rot_speed
-        self.min_draw_dist = 1.0  # m
+        self.min_draw_dist = 1.0  # 
         self.max_draw_dist = 5.0 # m
-        self.max_draw_angle = np.pi # rad
+        self.max_draw_angle = np.pi/4 # rad
 
 
         self.movement_mode = movements[1]
         self.dist_goal = np.inf
         self.angle_goal = 0
+        self.last_bounce = 0
         self.rotation_direction = 1 # -1 for clockwise, 1 for counterclockwise
 
         self.movement_on = False
         self.must_stop = False
         self.random_on = False
 
-        self.distance_travelled_source = "time"  # "or "odom"
+        # self.distance_travelled_source = "time"  # "or "odom"
         self.distance_travelled_source = "odom"
 
         if self.distance_travelled_source == "odom":
@@ -109,7 +112,7 @@ class Walker():
         # print(travel_to_collision[::100])
         # print(scanned_angles[::100])
         angle_index = np.argmin(travel_to_collision)
-        return scanned_angles[angle_index], travel_to_collision[angle_index]
+        return scanned_angles[angle_index], travel_to_collision[angle_index], angle_index, msg.angle_increment, scanned_array, scanned_angles
 
     # rotation_handle check if rotation is done, if swich to lin, else, order rotation
     def rotation_handle(self):
@@ -121,8 +124,12 @@ class Walker():
         if self.movement_mode != "rotation":
             rospy.logerr("Rotation handle called without being in rotation mode!")
             return
-        
-        if self.angle_travelled_since_ref(self.reference) >= self.angle_goal:
+
+        estimated_angle = self.angle_travelled_since_ref(self.reference)
+        rospy.loginfo("Estimating an angle of "+str(estimated_angle)+"rad, goal is "+str(self.angle_goal * self.rotation_direction))
+
+        # if estimated_angle * self.rotation_direction >= self.angle_goal:
+        if np.abs(estimated_angle) >= np.abs(self.angle_goal):
             # Rotation finished
             self.angle_goal = 0
             self.movement_mode = movements[1]
@@ -132,7 +139,11 @@ class Walker():
             rospy.logdebug("Rotation finished, switching to translation")
         else:
             # Keep rotating
-            self.pub_twist(rotation=self.rotation_direction * max_rot_speed)
+            # if (estimated_angle * self.rotation_direction / self.angle_goal) > 0.9:
+            #     desired_rot_speed = 0.5
+            # else:
+            desired_rot_speed = max_rot_speed
+            self.pub_twist(rotation=self.rotation_direction * desired_rot_speed)
         return
 
     # translation_handle check for obstacle, check for translation done. If then stop and swich to rotation, else continue translation
@@ -146,14 +157,15 @@ class Walker():
             rospy.logerr("Translation handle called without being in translation mode!")
             return
 
-        obstacle_angle, travel_to_obstacle = self.check_obstacles_scan(msg)
+        obstacle_angle, travel_to_obstacle, obstacle_index, angular_rez, distances, angles = self.check_obstacles_scan(msg)
         rospy.loginfo("Closest obstacle reached in "+str(travel_to_obstacle)+"m and is at angle "+str(obstacle_angle))
         if travel_to_obstacle < soft_bounce_dist:
             # We need to stop and then bounce
             self.pub_twist() # Stop movement before next callback (to stop translation)
             self.movement_mode = movements[0]
 
-            self.angle_goal, self.rotation_direction = self.bounce_angle_dir(obstacle_angle)
+            # self.angle_goal, self.rotation_direction = self.bounce_angle_dir(obstacle_angle)
+            self.angle_goal, self.rotation_direction = self.bounce_angle_dir(obstacle_index, angular_rez, distances, angles)
             self.dist_goal = self.dist_goal - self.distance_travelled_since_ref(self.reference) # Store distance to finish it after rotation
             self.reset_reference()
             rospy.loginfo("Obstacle, bouncing")
@@ -170,7 +182,11 @@ class Walker():
             rospy.loginfo("Travel leg finished, picking new direction")
         else:
             # Keep translating
-            self.pub_twist(translation=max_speed)
+            if travel_to_obstacle<max_speed_dist:
+                desired_speed = 0.2
+            else:
+                desired_speed = max_speed
+            self.pub_twist(translation=desired_speed)
             rospy.loginfo("Keep translating")
         return
 
@@ -184,19 +200,71 @@ class Walker():
         if self.distance_travelled_source == "odom":
             self.reference = self.current_pose
 
-    def bounce_angle_dir(self, obstacle_angle):
+    # def bounce_angle_dir(self, obstacle_angle_index, angular_resolution, distances, angles):
+    #     '''
+    #     Compute rotation angle and direction needed to bounce from obstacle
+        
+    #     Return:
+    #     angle (abs value), direction (-1 for clockwise, 1 for counterclockwise)
+    #     '''            
+    #     angular_aggregation = np.deg2rad(1.0) # Angle over which to aggregate (average) measured distances, to smooth the wall, and absorbant peaks
+    #     angular_lookahead = np.deg2rad(5.0) # angle over which to look to estimate orientation of the wall
+
+    #     samples_aggregation = int(angular_aggregation / angular_resolution)
+    #     samples_lookahead = int(angular_lookahead / angular_resolution)
+
+    #     mean_dist_obstacle = np.mean(distances[obstacle_angle_index-samples_aggregation:obstacle_angle_index+samples_aggregation])
+
+    #     # Evaluation to the left
+    #     mean_dist_lookahead_plus = np.mean(distances[obstacle_angle_index+samples_lookahead-samples_aggregation:obstacle_angle_index+samples_lookahead+samples_aggregation])
+    #     delta_sin = np.abs(mean_dist_obstacle*np.sin(angles[obstacle_angle_index]) - mean_dist_lookahead_plus*np.sin(angles[obstacle_angle_index+samples_lookahead]))
+    #     delta_cos = np.abs(mean_dist_obstacle*np.cos(angles[obstacle_angle_index]) - mean_dist_lookahead_plus*np.cos(angles[obstacle_angle_index+samples_lookahead]))
+    #     desired_angle_plus = np.arctan(delta_sin/delta_cos)
+
+    #     # Evaluation to the right
+    #     mean_dist_lookahead_minus = np.mean(distances[obstacle_angle_index-samples_lookahead-samples_aggregation:obstacle_angle_index-samples_lookahead+samples_aggregation])
+    #     delta_sin = np.abs(mean_dist_obstacle*np.sin(angles[obstacle_angle_index]) - mean_dist_lookahead_minus*np.sin(angles[obstacle_angle_index+samples_lookahead]))
+    #     delta_cos = np.abs(mean_dist_obstacle*np.cos(angles[obstacle_angle_index]) - mean_dist_lookahead_minus*np.cos(angles[obstacle_angle_index+samples_lookahead]))
+    #     desired_angle_minus = np.arctan(delta_sin/delta_cos)
+
+    #     angle = np.average([desired_angle_minus, desired_angle_plus]) * 2
+    #     direction = -1 * np.sign(np.sin(angles[obstacle_angle_index])) * lidar_rotation_direction
+    #     rospy.loginfo("Obstacle at angle "+str(angles[obstacle_angle_index])+" rotating to angle "+str(angle*direction))
+
+    #     if np.isnan(angle):
+    #         rospy.loginfo("Estimated angle is NAN, defaulting to small rotation")
+    #         angle = 0.5
+    #     return angle, direction
+
+    def bounce_angle_dir(self, obstacle_angle_index, angular_resolution, distances, angles):
         '''
         Compute rotation angle and direction needed to bounce from obstacle
         
         Return:
         angle (abs value), direction (-1 for clockwise, 1 for counterclockwise)
-        '''            
-        angle = np.maximum(np.pi - (2*np.abs(obstacle_angle)), 0.5)
-        
-        # We want to turn away from the obstacle
-        direction = -1 * np.sign(np.sin(obstacle_angle)) * lidar_rotation_direction
+        '''        
 
+        # angle = np.clip(0.5 / (time.time()-self.last_bounce), 0.1, 3.0)
+        angle = np.clip(0.5 , 0.1, 3.0)
+        direction = -1 * np.sign(np.sin(angles[obstacle_angle_index])) * lidar_rotation_direction
+        rospy.loginfo("Obstacle at angle "+str(angles[obstacle_angle_index])+" rotating to angle "+str(angle*direction))
+        self.last_bounce = time.time()
         return angle, direction
+
+    # def bounce_angle_dir(self, obstacle_angle):
+    #     '''
+    #     Compute rotation angle and direction needed to bounce from obstacle
+        
+    #     Return:
+    #     angle (abs value), direction (-1 for clockwise, 1 for counterclockwise)
+    #     '''            
+    #     # WE NEED MORE THAN JUST THE ANGLE!!!
+    #     angle = (np.pi/2 - np.abs(obstacle_angle)) * 2#np.maximum(np.pi - (2*np.abs(obstacle_angle)), 0.5)
+        
+    #     # We want to turn away from the obstacle
+    #     direction = -1 * np.sign(np.sin(obstacle_angle)) * lidar_rotation_direction
+    #     rospy.loginfo("Obstacle at angle "+str(obstacle_angle)+" rotating to angle "+str(angle*direction))
+    #     return angle, direction
 
     def pub_twist(self, translation=0.0, rotation=0.0):
         '''
@@ -229,7 +297,7 @@ class Walker():
         if self.distance_travelled_source == "odom":
             dist = np.sqrt(np.square(self.current_pose.position.x - self.reference.position.x) + \
             np.square(self.current_pose.position.y - self.reference.position.y))
-        rospy.loginfo("Travelled for "+str(time_span)+"s since ref, estimating a distance of "+str(dist)+"m")
+        rospy.loginfo("Estimating a distance of "+str(dist)+"m")
         return dist
 
     def angle_travelled_since_ref(self, reference):
@@ -239,21 +307,36 @@ class Walker():
 
         if self.distance_travelled_source == "time":
             time_span = time.time() - reference
-            angle = time_span * self.current_rot_speed
+            angle = time_span * self.current_rot_speed * self.rotation_direction
         if self.distance_travelled_source == "odom":
-            quat_rotation = tf.transformations.quaternion_multiply(tf.transformations.quaternion_inverse(self.reference.orientation), self.current_pose.orientation)
+            quat_rotation = tf.transformations.quaternion_multiply(tf.transformations.quaternion_inverse(self.quat_obj_to_array(self.reference.orientation)), self.quat_obj_to_array(self.current_pose.orientation))
             angle = tf.transformations.euler_from_quaternion(quat_rotation)[-1]
-        rospy.loginfo("Rotated for "+str(time_span)+"s since ref, estimating an angle of "+str(angle)+"rad")
+        # rospy.loginfo("Estimating an angle of "+str(angle)+"rad")
         return angle
 
-    def odom_callback(self, msg):
+    def quat_obj_to_array(self, obj):
+        """
+        Pass from Quaternion object from a ros message (geometry_msgs/Quaternion)
+        To a numpy array
 
+        Parameters
+        ----------
+        obj : geometry_msgs/Quaternion
+
+        Returns
+        -------
+        np.array
+        """
+        return np.array([obj.x, obj.y, obj.z, obj.w])
+
+    def odom_callback(self, msg):
         self.current_pose = msg.pose.pose
 
     def callback_switch_movement(self, req):
         self.movement_on = not self.movement_on
         self.update_leds()
         rospy.loginfo("Switching movement state to " + str(self.movement_on))
+        return True
 
     def callback_switch_random(self, req):
         self.random_on = not self.random_on
@@ -263,6 +346,41 @@ class Walker():
             self.dist_goal = np.inf
         self.update_leds()
         rospy.loginfo("Switching random state to " + str(self.random_on))
+        return True
+
+    def callback_takeoff(self, req):
+        for i in range(10):
+            self.pub_twist(translation=-0.3)
+            time.sleep(0.1)
+        return True
+
+    def callback_goto_base(self, req):        
+        self.movement_on = False
+        self.update_leds()
+        rospy.loginfo("Going back to base, Switching movement state to " + str(self.movement_on))
+        self.led1.value = Led.ORANGE
+        self.pub_led1.publish(self.led1)
+        self.led2.value = Led.ORANGE
+        self.pub_led2.publish(self.led2)
+        os.system("rosrun cortexbot return_home.py")
+    
+    def diagnostics_callback(self, msg): 
+        if len(msg.status) == 0:
+            return
+        for status in msg.status:
+            if status.name == "/Power System/Battery":
+                for value in status.values:
+                    if value.key == 'Percent':
+                        charge_percent = float(value.value)
+                    if value.key == "Charging State":
+                        if value.value == "Trickle Charging" or value.value == "Full Charging":
+                            charging = True
+                        else:
+                            charging = True
+        
+                if (charge_percent < minimum_charge) and (not charging):
+                    rospy.loginfo("Low battery detected, going back to base to recharge")
+                    self.callback_goto_base(None)
 
     def update_leds(self):
         if self.movement_on and self.random_on:
@@ -318,13 +436,14 @@ class Walker():
     def listener(self):
         rospy.loginfo("lanching nav node")
         rospy.init_node('nav', anonymous=True)
+        rospy.Subscriber("/diagnostics", DiagnosticArray, self.diagnostics_callback)
         rospy.Subscriber("/scan", LaserScan, self.scan_callback)
         rospy.Subscriber("/mobile_base/events/button", ButtonEvent, self.callback_buttons)
         rospy.Subscriber("/mobile_base/events/wheel_drop", WheelDropEvent, self.callback_wheel_drop)
         rospy.Service("/cortexbot/movement_on", Trigger, self.callback_switch_movement)
         rospy.Service("/cortexbot/random_on", Trigger, self.callback_switch_random)
-        # rospy.Service('/cortexbot/leave_base', Trigger, self.callbackSwitchTakeoff)
-        # rospy.Service('/cortexbot/dock', Trigger, self.GotToBaseCallback)
+        rospy.Service('/cortexbot/leave_base', Trigger, self.callback_takeoff)
+        rospy.Service('/cortexbot/dock', Trigger, self.callback_goto_base)
         if self.distance_travelled_source == "odom":
             rospy.Subscriber("/odom", Odometry, self.odom_callback)
         
