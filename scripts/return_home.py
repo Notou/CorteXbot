@@ -81,6 +81,8 @@ if __name__ == "__main__":
 		if result:
 			rospy.loginfo("Reached goal!")
 		dock_drive_client()
+		sys.exit(0)
 	except rospy.ROSInterruptException:
 		rospy.loginfo("Interrupt, navigation finnished.")
+		sys.exit("Did not reach dock")
 

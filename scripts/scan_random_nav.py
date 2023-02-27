@@ -7,7 +7,7 @@ import time
 from geometry_msgs.msg import Twist, Pose
 from sensor_msgs.msg import LaserScan
 from kobuki_msgs.msg import ButtonEvent, WheelDropEvent, Led
-from std_srvs.srv import Empty, Trigger
+from std_srvs.srv import Trigger, TriggerResponse
 from nav_msgs.msg import Odometry
 from diagnostic_msgs.msg import DiagnosticArray
 import tf.transformations
@@ -336,7 +336,7 @@ class Walker():
         self.movement_on = not self.movement_on
         self.update_leds()
         rospy.loginfo("Switching movement state to " + str(self.movement_on))
-        return True
+        return TriggerResponse(success=self.movement_on, message="State switched")
 
     def callback_switch_random(self, req):
         self.random_on = not self.random_on
@@ -346,13 +346,13 @@ class Walker():
             self.dist_goal = np.inf
         self.update_leds()
         rospy.loginfo("Switching random state to " + str(self.random_on))
-        return True
+        return TriggerResponse(success=self.random_on, message="State switched")
 
     def callback_takeoff(self, req):
         for i in range(10):
             self.pub_twist(translation=-0.3)
             time.sleep(0.1)
-        return True
+        return TriggerResponse(success=True, message="Taking off")
 
     def callback_goto_base(self, req):        
         self.movement_on = False
@@ -362,7 +362,14 @@ class Walker():
         self.pub_led1.publish(self.led1)
         self.led2.value = Led.ORANGE
         self.pub_led2.publish(self.led2)
-        os.system("rosrun cortexbot return_home.py")
+        exit_status = os.system("rosrun cortexbot return_home.py")
+        if exit_status > 0:
+            rospy.logerr("Issue during docking")
+            success = False
+        else:
+            success = True
+        return TriggerResponse(success=success, message="")
+        
     
     def diagnostics_callback(self, msg): 
         if len(msg.status) == 0:
