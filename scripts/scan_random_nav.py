@@ -6,6 +6,7 @@ import os
 import time
 from geometry_msgs.msg import Twist, Pose
 from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import Image
 from kobuki_msgs.msg import ButtonEvent, WheelDropEvent, Led
 from std_srvs.srv import Trigger, TriggerResponse
 from nav_msgs.msg import Odometry
@@ -83,6 +84,19 @@ class Walker():
             self.translation_handle(msg)
 
 
+    def depth_callback(self, msg):
+        if (not self.movement_on) or self.must_stop:
+            return
+
+        if self.movement_mode == "rotation":
+            self.rotation_handle()
+
+        if self.movement_mode == "translation":
+            rospy.logdebug("Translation")
+            self.translation_handle(msg, scan_source=False)
+
+
+
     # Detect_obstacles -> return closest collision angle and travel distance to collision
     def check_obstacles_scan(self, msg):
         """
@@ -106,13 +120,60 @@ class Walker():
         scanned_array = np.where(scanned_array<msg.range_min, np.inf, scanned_array)
 
         # We want to check if there is an obstacle in the way
+        collision_distances, travel_to_collision, angle_index = self.collision_from_scan(scanned_angles, scanned_array)
+
+        return scanned_angles[angle_index], travel_to_collision[angle_index], angle_index, msg.angle_increment, scanned_array, scanned_angles
+    
+
+    def collision_from_scan(self, scanned_angles, scanned_array):
+    
+        # We want to check if there is an obstacle in the way
         collision_distances = (np.sign(np.cos(scanned_angles))*avoidance_radius) / (np.abs(np.sin(scanned_angles)) + epsilon) # Get distances at which we can have a collision in straight line
         travel_to_collision = np.where(scanned_array<collision_distances, scanned_array*np.cos(scanned_angles), np.inf)
-        # print(collision_distances[::100])
-        # print(travel_to_collision[::100])
-        # print(scanned_angles[::100])
         angle_index = np.argmin(travel_to_collision)
-        return scanned_angles[angle_index], travel_to_collision[angle_index], angle_index, msg.angle_increment, scanned_array, scanned_angles
+
+        return collision_distances, travel_to_collision, angle_index
+
+
+    def check_obstacles_kinect(self, msg):
+        """
+        Check for obstacles in a Kinect depth image
+
+        Parameters
+        ----------
+        msg : Image
+            Depth image, expected as an OpenNi standard image_raw, with depths in mm as uint16
+
+        Returns
+        -------
+        float
+            Angle of closest collision (rad)
+        float
+            Distance to travel in straight line before collision (m)
+        """
+
+
+        # depth_image.height = height of the matrix
+        # depth_image.width = width of the matrix
+        # depth_image[x,y] = the float value in m of a point place a a height x and width y
+
+        img_array = np.array(msg.data.view(np.uint16))
+        depth_image = img_array.reshape((msg.height, msg.width))
+
+        # keep only relevant pixels: exclude 100 at the top (beginning of array), and also at bottom
+
+        cropped_depth = depth_image[100:-100]
+        scanned_array = np.min(cropped_depth, axis=0)
+
+        kinect_h_fov = np.deg2rad(59)
+        scanned_angles = np.linspace(-kinect_h_fov/2, kinect_h_fov/2, msg.width)
+
+        # We want to check if there is an obstacle in the way
+        collision_distances, travel_to_collision, angle_index = self.collision_from_scan(scanned_angles, scanned_array)
+
+        return scanned_angles[angle_index], travel_to_collision[angle_index], angle_index, kinect_h_fov/msg.width, scanned_array, scanned_angles
+        
+
 
     # rotation_handle check if rotation is done, if swich to lin, else, order rotation
     def rotation_handle(self):
@@ -147,7 +208,7 @@ class Walker():
         return
 
     # translation_handle check for obstacle, check for translation done. If then stop and swich to rotation, else continue translation
-    def translation_handle(self, msg):
+    def translation_handle(self, msg, scan_source=True):
         '''
         Handle the translation state of the robot.
         Check if either translation goal is attaigned or if obstacle is present.
@@ -157,7 +218,11 @@ class Walker():
             rospy.logerr("Translation handle called without being in translation mode!")
             return
 
-        obstacle_angle, travel_to_obstacle, obstacle_index, angular_rez, distances, angles = self.check_obstacles_scan(msg)
+        if scan_source:
+            obstacle_angle, travel_to_obstacle, obstacle_index, angular_rez, distances, angles = self.check_obstacles_scan(msg)
+        else:
+            obstacle_angle, travel_to_obstacle, obstacle_index, angular_rez, distances, angles = self.check_obstacles_kinect(msg)
+
         rospy.loginfo("Closest obstacle reached in "+str(travel_to_obstacle)+"m and is at angle "+str(obstacle_angle))
         if travel_to_obstacle < soft_bounce_dist:
             # We need to stop and then bounce
@@ -445,6 +510,7 @@ class Walker():
         rospy.init_node('nav', anonymous=True)
         rospy.Subscriber("/diagnostics", DiagnosticArray, self.diagnostics_callback)
         rospy.Subscriber("/scan", LaserScan, self.scan_callback)
+        rospy.Subscriber("/camera/depth/image_raw", Image, self.depth_callback)
         rospy.Subscriber("/mobile_base/events/button", ButtonEvent, self.callback_buttons)
         rospy.Subscriber("/mobile_base/events/wheel_drop", WheelDropEvent, self.callback_wheel_drop)
         rospy.Service("/cortexbot/movement_on", Trigger, self.callback_switch_movement)
