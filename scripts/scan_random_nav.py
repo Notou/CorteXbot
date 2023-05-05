@@ -157,13 +157,12 @@ class Walker():
         # depth_image.width = width of the matrix
         # depth_image[x,y] = the float value in m of a point place a a height x and width y
 
-        img_array = np.array(msg.data.view(np.uint16))
+        img_array = np.frombuffer(msg.data, dtype=np.uint16)
         depth_image = img_array.reshape((msg.height, msg.width))
-
         # keep only relevant pixels: exclude 100 at the top (beginning of array), and also at bottom
 
-        cropped_depth = depth_image[100:-100]
-        scanned_array = np.min(cropped_depth, axis=0)
+        cropped_depth = depth_image[100:-100] - 1 # Ignore values at 0 corresponding to invalid data
+        scanned_array = np.min(cropped_depth, axis=0).astype(np.float32) / 1000 # From mm to meters
 
         kinect_h_fov = np.deg2rad(59)
         scanned_angles = np.linspace(-kinect_h_fov/2, kinect_h_fov/2, msg.width)

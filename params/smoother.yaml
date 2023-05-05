@@ -1,15 +1,15 @@
 # Parameters used by the yocs_velocity_smoother module.
 
 # Mandatory parameters
-speed_lim_v: 1.0
+speed_lim_v: 0.8 # Need to be close to maximum achievable value
 speed_lim_w: 6.0
 
 accel_lim_v: 0.75 # maximum is actually 2.0, but we push it down to be smooth
-accel_lim_w: 20.0
+accel_lim_w: 10.0
 
 # Optional parameters
 frequency: 20.0
-decel_factor: 1.0
+decel_factor: 2.0
 
 # Robot velocity feedback type:
 #  0 - none (default)

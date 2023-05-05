@@ -11,9 +11,9 @@
   </include>
   <include file="$(find kobuki_auto_docking)/launch/minimal.launch" />
   
-  <include file="$(find rplidar_ros)/launch/rplidar_a3.launch">
+  <!-- <include file="$(find rplidar_ros)/launch/rplidar_a3.launch">
     <param name="frame_id" type="string" value="laser_link"/>
-  </include>
+  </include> -->
 
   <include file="$(find freenect_launch)/launch/freenect.launch" >
     <arg name="rgb_processing"                  value="false" />
